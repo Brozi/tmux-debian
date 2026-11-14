@@ -1,0 +1,13 @@
+Package: ${PACKAGE_NAME}
+Version: ${PACKAGE_FULL_VERSION}
+Architecture: ${DEB_ARCH}
+Maintainer: ${MAINTAINER}
+Installed-Size: ${INSTALLED_SIZE}
+Section: ${SECTION}
+Priority: ${PRIORITY}
+Homepage: ${HOMEPAGE}
+Provides: ${PROVIDES}
+Replaces: ${REPLACES}
+Conflicts: ${CONFLICTS}
+Description: ${DESCRIPTION_SUMMARY}
+${DESCRIPTION_BODY}

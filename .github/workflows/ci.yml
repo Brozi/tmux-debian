@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check upstream monitor script
+        run: |
+          ./scripts/check-upstream.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build latest packages (all architectures)
+        run: |
+          ./scripts/build-deb.sh --version latest --arch all --out-dir dist/
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run test suite
+        run: |
+          ./scripts/test-deb.sh dist/*.deb
+
+      - name: Verify checksums
+        run: |
+          cd dist
+          sha256sum --check *.sha256

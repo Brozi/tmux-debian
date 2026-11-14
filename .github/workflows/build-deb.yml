@@ -1,0 +1,85 @@
+name: Build tmux .deb Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'tmux version to package (e.g. 3.8, latest, preview)'
+        required: true
+        default: 'latest'
+      arch:
+        description: 'Target architecture'
+        required: true
+        type: choice
+        options:
+          - all
+          - amd64
+          - arm64
+        default: 'all'
+      revision:
+        description: 'Debian package revision'
+        required: true
+        default: '1'
+      publish_release:
+        description: 'Create a GitHub Release with the built packages'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build .deb packages
+        run: |
+          ./scripts/build-deb.sh \
+            --version "${{ github.event.inputs.version }}" \
+            --arch "${{ github.event.inputs.arch }}" \
+            --revision "${{ github.event.inputs.revision }}" \
+            --out-dir dist/
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Test generated packages
+        run: |
+          ./scripts/test-deb.sh dist/*.deb
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd dist
+          sha256sum tmux_*.deb > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tmux-deb-${{ github.event.inputs.version }}
+          path: dist/*
+
+      - name: Publish GitHub Release (if requested)
+        if: github.event.inputs.publish_release == 'true'
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [ "${VERSION}" = "latest" ]; then
+            TAG=$(gh release view --repo tmux/tmux-builds --json tagName -q .tagName)
+            VERSION="${TAG#v}"
+          elif [ "${VERSION}" = "preview" ]; then
+            TAG="preview"
+          else
+            TAG="v${VERSION#v}"
+          fi
+
+          echo "Publishing release ${TAG}..."
+          gh release create "${TAG}" dist/* \
+            --repo "${{ github.repository }}" \
+            --title "tmux ${VERSION}" \
+            --notes "Custom build of tmux ${VERSION} .deb packages for amd64 and arm64." \
+            || gh release upload "${TAG}" dist/* --repo "${{ github.repository }}" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,17 @@
+tmux for Debian / Ubuntu
+------------------------
+
+This package provides a standalone, statically-linked build of tmux compiled from
+the official tmux-builds project:
+https://github.com/tmux/tmux-builds
+
+Features:
+- Statically linked with musl libc, libevent, and ncurses.
+- Zero dynamic library dependencies.
+- Portable across Debian 11 (Bullseye), Debian 12 (Bookworm), Debian 13 (Trixie),
+  Debian 14 (Forky), Debian Sid, and Ubuntu 22.04 (Jammy), 24.04 (Noble),
+  25.10 (Questing), 26.04 (Resolute).
+- Standard installation paths (/usr/bin/tmux and /usr/share/man/man1/tmux.1.gz).
+
+Built with tmux-builder:
+https://github.com/tmux-builder/tmux-builder

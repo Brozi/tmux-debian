@@ -1,0 +1,10 @@
+services:
+  builder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+    command: ["--arch", "all", "--out-dir", "dist/"]

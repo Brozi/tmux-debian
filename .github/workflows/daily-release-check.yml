@@ -1,0 +1,137 @@
+name: Daily Upstream Release Monitor & Publisher
+
+on:
+  schedule:
+    # Run daily at 04:00 UTC
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: 'Force build even if release already exists in this repo'
+        required: false
+        type: boolean
+        default: false
+      specific_version:
+        description: 'Specific tmux version to build (leave empty for latest)'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  check-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check upstream for latest release
+        id: upstream
+        run: |
+          if [ -n "${{ github.event.inputs.specific_version }}" ]; then
+            TAG="v${{ github.event.inputs.specific_version }}"
+            TAG="${TAG#vv}"
+            VERSION="${TAG#v}"
+            echo "latest_tag=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "latest_version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "Selected specific version: ${VERSION} (${TAG})"
+          else
+            ./scripts/check-upstream.sh
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if release already exists in current repository
+        id: check_local
+        run: |
+          TARGET_TAG="${{ steps.upstream.outputs.latest_tag }}"
+          FORCE="${{ github.event.inputs.force_build || 'false' }}"
+
+          echo "Target tag to check: ${TARGET_TAG}"
+          if [ "${FORCE}" = "true" ]; then
+            echo "Force build requested. Proceeding with build."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          else
+            # Check if release tag exists in this repository
+            if gh release view "${TARGET_TAG}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+              echo "Release ${TARGET_TAG} already exists in ${{ github.repository }}. Skipping build."
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "Release ${TARGET_TAG} does not exist yet in ${{ github.repository }}. Building!"
+              echo "should_build=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build packages for all architectures (amd64 and arm64)
+        if: steps.check_local.outputs.should_build == 'true'
+        run: |
+          TARGET_VER="${{ steps.upstream.outputs.latest_version }}"
+          echo "Building universal .deb packages for tmux ${TARGET_VER} (amd64 and arm64)..."
+          ./scripts/build-deb.sh --version "${TARGET_VER}" --arch all --out-dir dist/
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Test and verify packages
+        if: steps.check_local.outputs.should_build == 'true'
+        run: |
+          ./scripts/test-deb.sh dist/*.deb
+
+      - name: Generate consolidated SHA256SUMS
+        if: steps.check_local.outputs.should_build == 'true'
+        run: |
+          cd dist
+          sha256sum tmux_*.deb > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish GitHub Release
+        if: steps.check_local.outputs.should_build == 'true'
+        run: |
+          TARGET_TAG="${{ steps.upstream.outputs.latest_tag }}"
+          TARGET_VER="${{ steps.upstream.outputs.latest_version }}"
+
+          NOTES=$(cat <<EOF
+          ## tmux ${TARGET_VER} (.deb packages)
+
+          Automated universal Debian / Ubuntu packages built from the official [tmux/tmux-builds](https://github.com/tmux/tmux-builds) release \`${TARGET_TAG}\`.
+
+          ### Supported Architectures
+          - **amd64** (\`x86_64\`)
+          - **arm64** (\`aarch64\`)
+
+          ### Universal Distribution Compatibility
+          These packages are statically compiled with musl-libc and packaged with \`xz\` compression for universal compatibility across:
+          - **Debian**: 11 (Bullseye), 12 (Bookworm), 13 (Trixie), 14 (Forky), and Sid
+          - **Ubuntu**: 22.04 LTS (Jammy), 24.04 LTS (Noble), 25.10 (Questing), 26.04 LTS (Resolute)
+
+          ### Installation
+          \`\`\`bash
+          # Download the package for your architecture
+          sudo dpkg -i tmux_${TARGET_VER}-1_<arch>.deb
+          \`\`\`
+          EOF
+          )
+
+          # Delete existing release/tag if force build
+          if [ "${{ github.event.inputs.force_build }}" = "true" ]; then
+            gh release delete "${TARGET_TAG}" --repo "${{ github.repository }}" --yes || true
+            git push --delete origin "${TARGET_TAG}" 2>/dev/null || true
+          fi
+
+          echo "Creating GitHub Release ${TARGET_TAG}..."
+          gh release create "${TARGET_TAG}" dist/* \
+            --repo "${{ github.repository }}" \
+            --title "tmux ${TARGET_VER}" \
+            --notes "${NOTES}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        if: steps.check_local.outputs.should_build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tmux-deb-${{ steps.upstream.outputs.latest_version }}
+          path: dist/*

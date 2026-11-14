@@ -7,12 +7,12 @@ on:
   workflow_dispatch:
     inputs:
       force_build:
-        description: 'Force build even if release already exists in this repo'
+        description: 'Force rebuild and update packages even if release already exists'
         required: false
         type: boolean
-        default: false
+        default: true
       specific_version:
-        description: 'Specific tmux version to build (leave empty for latest)'
+        description: 'Specific tmux version to build (e.g. 3.8, leave empty for latest)'
         required: false
         type: string
         default: ''
@@ -47,21 +47,36 @@ jobs:
         id: check_local
         run: |
           TARGET_TAG="${{ steps.upstream.outputs.latest_tag }}"
-          FORCE="${{ github.event.inputs.force_build || 'false' }}"
+          FORCE="${{ github.event.inputs.force_build }}"
+          
+          # Default FORCE to true for workflow_dispatch if not explicitly set
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -z "${FORCE}" ]; then
+            FORCE="true"
+          fi
 
-          echo "Target tag to check: ${TARGET_TAG}"
-          if [ "${FORCE}" = "true" ]; then
-            echo "Force build requested. Proceeding with build."
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-          else
-            # Check if release tag exists in this repository
-            if gh release view "${TARGET_TAG}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-              echo "Release ${TARGET_TAG} already exists in ${{ github.repository }}. Skipping build."
-              echo "should_build=false" >> "$GITHUB_OUTPUT"
-            else
-              echo "Release ${TARGET_TAG} does not exist yet in ${{ github.repository }}. Building!"
+          echo "Target tag: ${TARGET_TAG}"
+          echo "Force build: ${FORCE}"
+
+          if gh release view "${TARGET_TAG}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            if [ "${FORCE}" = "true" ]; then
+              echo "Release ${TARGET_TAG} already exists, but force_build is true. Rebuilding packages and updating release..."
               echo "should_build=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "Release ${TARGET_TAG} already exists in ${{ github.repository }}. Skipping automated build."
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+
+              if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+                cat <<EOF >> "$GITHUB_STEP_SUMMARY"
+### Upstream Status: Up to date
+The latest upstream release is **${TARGET_TAG}**, which is already published in **${{ github.repository }}**.
+No new build was required.
+*(To force rebuild, run manually with **force_build** checked).*
+EOF
+              fi
             fi
+          else
+            echo "New release detected! ${TARGET_TAG} is not yet published in ${{ github.repository }}. Proceeding with build..."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -87,13 +102,14 @@ jobs:
           sha256sum tmux_*.deb > SHA256SUMS
           cat SHA256SUMS
 
-      - name: Publish GitHub Release
+      - name: Publish or Update GitHub Release
         if: steps.check_local.outputs.should_build == 'true'
         run: |
           TARGET_TAG="${{ steps.upstream.outputs.latest_tag }}"
           TARGET_VER="${{ steps.upstream.outputs.latest_version }}"
 
-          NOTES=$(cat <<EOF
+          NOTES_FILE="$(mktemp)"
+          cat <<EOF > "${NOTES_FILE}"
           ## tmux ${TARGET_VER} (.deb packages)
 
           Automated universal Debian / Ubuntu packages built from the official [tmux/tmux-builds](https://github.com/tmux/tmux-builds) release \`${TARGET_TAG}\`.
@@ -113,21 +129,41 @@ jobs:
           sudo dpkg -i tmux_${TARGET_VER}-1_<arch>.deb
           \`\`\`
           EOF
-          )
 
-          # Delete existing release/tag if force build
-          if [ "${{ github.event.inputs.force_build }}" = "true" ]; then
-            gh release delete "${TARGET_TAG}" --repo "${{ github.repository }}" --yes || true
-            git push --delete origin "${TARGET_TAG}" 2>/dev/null || true
+          # Check if release exists; if so, update notes and assets. If not, create it.
+          if gh release view "${TARGET_TAG}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release ${TARGET_TAG} exists. Updating release notes and assets..."
+            gh release edit "${TARGET_TAG}" --repo "${{ github.repository }}" --title "tmux ${TARGET_VER}" --notes-file "${NOTES_FILE}"
+            gh release upload "${TARGET_TAG}" dist/* --repo "${{ github.repository }}" --clobber
+          else
+            echo "Creating GitHub Release ${TARGET_TAG}..."
+            gh release create "${TARGET_TAG}" dist/* \
+              --repo "${{ github.repository }}" \
+              --title "tmux ${TARGET_VER}" \
+              --notes-file "${NOTES_FILE}"
           fi
-
-          echo "Creating GitHub Release ${TARGET_TAG}..."
-          gh release create "${TARGET_TAG}" dist/* \
-            --repo "${{ github.repository }}" \
-            --title "tmux ${TARGET_VER}" \
-            --notes "${NOTES}"
+          rm -f "${NOTES_FILE}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write GitHub Step Summary
+        if: steps.check_local.outputs.should_build == 'true'
+        run: |
+          TARGET_TAG="${{ steps.upstream.outputs.latest_tag }}"
+          TARGET_VER="${{ steps.upstream.outputs.latest_version }}"
+
+          cat <<EOF >> "$GITHUB_STEP_SUMMARY"
+          ### Release Published Successfully!
+          - **Release Tag:** [${TARGET_TAG}](https://github.com/${{ github.repository }}/releases/tag/${TARGET_TAG})
+          - **tmux Version:** \`${TARGET_VER}\`
+          - **Packages Built:**
+            - \`dist/tmux_${TARGET_VER}-1_amd64.deb\`
+            - \`dist/tmux_${TARGET_VER}-1_arm64.deb\`
+          - **Checksums:**
+          \`\`\`
+          $(cat dist/SHA256SUMS)
+          \`\`\`
+          EOF
 
       - name: Upload artifacts
         if: steps.check_local.outputs.should_build == 'true'

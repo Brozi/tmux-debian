@@ -1,7 +1,8 @@
 # tmux .deb Package Builder
 
-[![CI](https://github.com/brozi/tmux-builder/actions/workflows/ci.yml/badge.svg)](https://github.com/brozi/tmux-builder/actions/workflows/ci.yml)
-[![Daily Release Check](https://github.com/brozi/tmux-builder/actions/workflows/daily-release-check.yml/badge.svg)](https://github.com/brozi/tmux-builder/actions/workflows/daily-release-check.yml)
+[![CI](https://github.com/Brozi/tmux-debian/actions/workflows/ci.yml/badge.svg)](https://github.com/Brozi/tmux-debian/actions/workflows/ci.yml)
+[![Daily Release Check](https://github.com/Brozi/tmux-debian/actions/workflows/daily-release-check.yml/badge.svg)](https://github.com/Brozi/tmux-debian/actions/workflows/daily-release-check.yml)
+[![Latest Release](https://img.shields.io/github/v/release/Brozi/tmux-debian?color=blue&label=release)](https://github.com/Brozi/tmux-debian/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 An automated build system and repository for packaging universal Debian/Ubuntu (`.deb`) packages of **tmux** from the official [`tmux/tmux-builds`](https://github.com/tmux/tmux-builds) releases.
@@ -35,7 +36,7 @@ Because the upstream binary is statically linked and the packages use standard `
 
 ## Quick Start: Installing Pre-built Packages
 
-Download the `.deb` file for your architecture from the [Releases](https://github.com/brozi/tmux-builder/releases) tab and install:
+Download the `.deb` file for your architecture from the [Releases](https://github.com/Brozi/tmux-debian/releases) tab and install:
 
 ```bash
 # For x86_64 / amd64:

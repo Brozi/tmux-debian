@@ -48,8 +48,7 @@ jobs:
         run: |
           TARGET_TAG="${{ steps.upstream.outputs.latest_tag }}"
           FORCE="${{ github.event.inputs.force_build }}"
-          
-          # Default FORCE to true for workflow_dispatch if not explicitly set
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -z "${FORCE}" ]; then
             FORCE="true"
           fi
@@ -59,19 +58,17 @@ jobs:
 
           if gh release view "${TARGET_TAG}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             if [ "${FORCE}" = "true" ]; then
-              echo "Release ${TARGET_TAG} already exists, but force_build is true. Rebuilding packages and updating release..."
+              echo "Release ${TARGET_TAG} already exists, but force_build is true. Rebuilding..."
               echo "should_build=true" >> "$GITHUB_OUTPUT"
             else
               echo "Release ${TARGET_TAG} already exists in ${{ github.repository }}. Skipping automated build."
               echo "should_build=false" >> "$GITHUB_OUTPUT"
 
               if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-                cat <<EOF >> "$GITHUB_STEP_SUMMARY"
-### Upstream Status: Up to date
-The latest upstream release is **${TARGET_TAG}**, which is already published in **${{ github.repository }}**.
-No new build was required.
-*(To force rebuild, run manually with **force_build** checked).*
-EOF
+                echo "### Upstream Status: Up to date" >> "$GITHUB_STEP_SUMMARY"
+                echo "The latest upstream release is **${TARGET_TAG}**, which is already published in **${{ github.repository }}**." >> "$GITHUB_STEP_SUMMARY"
+                echo "No new build was required." >> "$GITHUB_STEP_SUMMARY"
+                echo "*(To force rebuild, run manually with **force_build** checked).*" >> "$GITHUB_STEP_SUMMARY"
               fi
             fi
           else
@@ -109,28 +106,24 @@ EOF
           TARGET_VER="${{ steps.upstream.outputs.latest_version }}"
 
           NOTES_FILE="$(mktemp)"
-          cat <<EOF > "${NOTES_FILE}"
-          ## tmux ${TARGET_VER} (.deb packages)
+          echo "## tmux ${TARGET_VER} (.deb packages)" >> "${NOTES_FILE}"
+          echo "" >> "${NOTES_FILE}"
+          echo "Automated universal Debian / Ubuntu packages built from the official [tmux/tmux-builds](https://github.com/tmux/tmux-builds) release \`${TARGET_TAG}\`." >> "${NOTES_FILE}"
+          echo "" >> "${NOTES_FILE}"
+          echo "### Supported Architectures" >> "${NOTES_FILE}"
+          echo "- **amd64** (\`x86_64\`)" >> "${NOTES_FILE}"
+          echo "- **arm64** (\`aarch64\`)" >> "${NOTES_FILE}"
+          echo "" >> "${NOTES_FILE}"
+          echo "### Universal Distribution Compatibility" >> "${NOTES_FILE}"
+          echo "These packages are statically compiled with musl-libc and packaged with \`xz\` compression for universal compatibility across:" >> "${NOTES_FILE}"
+          echo "- **Debian**: 11 (Bullseye), 12 (Bookworm), 13 (Trixie), 14 (Forky), and Sid" >> "${NOTES_FILE}"
+          echo "- **Ubuntu**: 22.04 LTS (Jammy), 24.04 LTS (Noble), 25.10 (Questing), 26.04 LTS (Resolute)" >> "${NOTES_FILE}"
+          echo "" >> "${NOTES_FILE}"
+          echo "### Installation" >> "${NOTES_FILE}"
+          echo "\`\`\`bash" >> "${NOTES_FILE}"
+          echo "sudo dpkg -i tmux_${TARGET_VER}-1_<arch>.deb" >> "${NOTES_FILE}"
+          echo "\`\`\`" >> "${NOTES_FILE}"
 
-          Automated universal Debian / Ubuntu packages built from the official [tmux/tmux-builds](https://github.com/tmux/tmux-builds) release \`${TARGET_TAG}\`.
-
-          ### Supported Architectures
-          - **amd64** (\`x86_64\`)
-          - **arm64** (\`aarch64\`)
-
-          ### Universal Distribution Compatibility
-          These packages are statically compiled with musl-libc and packaged with \`xz\` compression for universal compatibility across:
-          - **Debian**: 11 (Bullseye), 12 (Bookworm), 13 (Trixie), 14 (Forky), and Sid
-          - **Ubuntu**: 22.04 LTS (Jammy), 24.04 LTS (Noble), 25.10 (Questing), 26.04 LTS (Resolute)
-
-          ### Installation
-          \`\`\`bash
-          # Download the package for your architecture
-          sudo dpkg -i tmux_${TARGET_VER}-1_<arch>.deb
-          \`\`\`
-          EOF
-
-          # Check if release exists; if so, update notes and assets. If not, create it.
           if gh release view "${TARGET_TAG}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             echo "Release ${TARGET_TAG} exists. Updating release notes and assets..."
             gh release edit "${TARGET_TAG}" --repo "${{ github.repository }}" --title "tmux ${TARGET_VER}" --notes-file "${NOTES_FILE}"
@@ -152,18 +145,19 @@ EOF
           TARGET_TAG="${{ steps.upstream.outputs.latest_tag }}"
           TARGET_VER="${{ steps.upstream.outputs.latest_version }}"
 
-          cat <<EOF >> "$GITHUB_STEP_SUMMARY"
-          ### Release Published Successfully!
-          - **Release Tag:** [${TARGET_TAG}](https://github.com/${{ github.repository }}/releases/tag/${TARGET_TAG})
-          - **tmux Version:** \`${TARGET_VER}\`
-          - **Packages Built:**
-            - \`dist/tmux_${TARGET_VER}-1_amd64.deb\`
-            - \`dist/tmux_${TARGET_VER}-1_arm64.deb\`
-          - **Checksums:**
-          \`\`\`
-          $(cat dist/SHA256SUMS)
-          \`\`\`
-          EOF
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            echo "### Release Published Successfully!" >> "$GITHUB_STEP_SUMMARY"
+            echo "- **Release Tag:** [${TARGET_TAG}](https://github.com/${{ github.repository }}/releases/tag/${TARGET_TAG})" >> "$GITHUB_STEP_SUMMARY"
+            echo "- **tmux Version:** \`${TARGET_VER}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- **Packages Built:**" >> "$GITHUB_STEP_SUMMARY"
+            echo "  - \`dist/tmux_${TARGET_VER}-1_amd64.deb\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "  - \`dist/tmux_${TARGET_VER}-1_arm64.deb\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Checksums" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+            cat dist/SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
+            echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload artifacts
         if: steps.check_local.outputs.should_build == 'true'
